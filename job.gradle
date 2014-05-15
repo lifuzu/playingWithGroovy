@@ -1,0 +1,155 @@
+
+// java -jar jenkins-cli.jar -s http://jenkins/
+
+String Jenkins01ServerURL = "http://jenkins"
+String JenkinsCLI = "jenkins-cli.jar"
+
+/*
+ * Fetch the Jenkins CLI package
+ */
+def fetchJenkinsCLI(String JenkinsServerURL, String JenkinsCLI) {
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        commandLine 'wget', '-q', '-nc', JenkinsServerURL + '/jnlpJars/' + JenkinsCLI
+        standardOutput = stdout
+    }
+    return stdout.toString().trim()
+}
+
+/*
+ * Run commands with the jenkins server
+ # For example:
+ * "java -jar jenkins-cli.jar -s http://jenkins/ help"
+ */
+def runCommandWithServer(String JenkinsServerURL, String JenkinsCLI, String commands) {
+    def stdout = new ByteArrayOutputStream()
+    exec {
+	commandLine = "java -jar ${JenkinsCLI} -s ${JenkinsServerURL} ${commands}".tokenize()
+	standardOutput = stdout
+    }
+    return stdout.toString().trim()
+}
+
+/*
+ * Run commands with the jenkins server, save output to a file
+ # For example:
+ * "java -jar jenkins-cli.jar -s http://jenkins/ get-job template > template.xml"
+ */
+def runCommandWithServerWriteOutput(String JenkinsServerURL, String JenkinsCLI, String commands, String fileName) {
+    def file = new File(fileName)
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        commandLine = "java -jar ${JenkinsCLI} -s ${JenkinsServerURL} ${commands}".tokenize()
+        standardOutput = stdout
+    }
+    file.text = stdout.toString().trim()
+    return true
+}
+
+/*
+ * Run commands with the jenkins server, read input from a file
+ # For example:
+ * "java -jar jenkins-cli.jar -s http://jenkins/ create-job template < template.xml"
+ */
+def runCommandWithServerReadInput(String JenkinsServerURL, String JenkinsCLI, String commands, String fileName) {
+    exec {
+        commandLine = "java -jar ${JenkinsCLI} -s ${JenkinsServerURL} ${commands}".tokenize()
+        standardInput = new FileInputStream(fileName)
+    }
+    return true
+}
+
+/*
+ * Do check to make sure there is a project name, like: "-PprojectName=HelloWorld"
+ */
+def checkProjectName() {
+    if (!project.hasProperty('projectName')) {
+        StopActionException('Error: Need "projectName", please set it as "-PprojectName=HelloWorld"')
+    }
+}
+
+/*
+ * Do check if set to run the Jenkins job once, like: "-Prun=false"
+ */
+def runJobOnce() {
+    // Set to run the Jenkins Job once true by defaule
+    def runJobOnce = true
+    if (project.hasProperty('run')) {
+        if (run.toLowerCase() == 'false') {
+            runJobOnce = false
+        }
+    }
+    return runJobOnce
+}
+/*
+ * Do check if set to disable the Jenkins job, like: "-Pdisable=true"
+ */
+def disableJob() {
+    // Set Disable Jenkins Job false by defaule
+    def disableJob = false
+    if (project.hasProperty('disable')) {
+        if (disable.toLowerCase() == 'true') {
+            disableJob = true
+        }
+    }
+    return disableJob
+}
+
+/*
+ * Get the REPO_PATH property, like: "-PrepoPath=android/apps"
+ */
+def getRepoPath() {
+    // Set the repo path as: android/libs by default
+    return project.hasProperty('repoPath') ? project.getProperty('repoPath') : "android/libs"
+}
+
+/*
+ * Get the template which the new job should be cloned from, like: "-Ptemplate=TemplateProject"
+ */
+def getTemplate() {
+    // Set the templte as: TemplateProject by default
+    return project.hasProperty('template') ? project.getProperty('template') : "TemplateProject"
+}
+
+/*
+ * Replace the old string with the new one in the file
+ */
+def replace( String oldString, String newString, String fileName = "settings.gradle") {
+  def fileHandler = new File(fileName)
+  def fileContent = fileHandler.getText()
+  def regExp = /$oldString/
+  def newContent = ( fileContent =~ regExp ).replaceAll( newString )
+  fileHandler.text = newContent
+}
+
+/*
+ * Rename file
+ */
+def renameFile( String oldFileName, String newFileName ) {
+  new File(oldFileName).renameTo(new File(newFileName))
+}
+
+/*
+ * create Jenkins Job Task
+ */
+task createJenkinsJob << {
+    checkProjectName()
+    fetchJenkinsCLI(Jenkins01ServerURL, JenkinsCLI)
+    //runCommandWithServer(Jenkins01ServerURL, JenkinsCLI, 'help')
+    runCommandWithServerWriteOutput(Jenkins01ServerURL, JenkinsCLI, 'get-job ' + getTemplate(), 'TemplateProject.xml')
+    // Replace the token '@PROJECT_NAME@'|'@REPO_NAME' with the projectName, '@REPO_PATH@' with the 'android/[apps|libs]'
+    renameFile('TemplateProject.xml', projectName + '.xml')
+    replace('@PROJECT_NAME@', projectName, projectName + '.xml')
+    replace('@REPO_NAME@', projectName, projectName + '.xml')
+    replace('@REPO_PATH@', getRepoPath(), projectName + '.xml')
+    runCommandWithServerReadInput(Jenkins01ServerURL, JenkinsCLI, 'create-job ' + projectName, projectName + '.xml')
+    // Run the job once right now unless specify don't run with: '-Prun=false'
+    if (runJobOnce()) {
+        runCommandWithServer(Jenkins01ServerURL, JenkinsCLI, 'build ' + projectName)
+    }
+    // Disable the job if specified with: '-Pdisable=true'
+    if (disableJob()) {
+        runCommandWithServer(Jenkins01ServerURL, JenkinsCLI, 'disable-job ' + projectName)
+    }
+}
+

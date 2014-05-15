@@ -1,0 +1,278 @@
+Properties props = new Properties()
+props.load(new FileInputStream("local.properties"))
+ext.sdkDir = props['sdk.dir']
+ext.templateDir = 'gradle/templates'
+
+/*
+ * Ask password with a prompt
+ */
+def askPassword( String prompt = 'Please enter the password: ') {
+  def password = System.console().readPassword("\n" + prompt)
+  return password.toString().trim()
+}
+
+/*
+ * Ask an information with a prompt
+ */
+def askInformation( String prompt = 'Please enter your username: ', String defaultValue = null) {
+  if (defaultValue) {
+    prompt += "[" + defaultValue + "]"
+  }
+  def information = System.console().readLine("\n" + prompt) ?: defaultValue
+  return information.toString().trim()
+}
+
+/*
+ * Get the parent folder name
+ */
+def getParentFolderName = { ->
+  String parentFolderName = System.getProperty("user.dir")
+  return parentFolderName.substring(parentFolderName.lastIndexOf("/") + 1).trim()
+}
+
+/*
+ * Get the latest build target
+ */
+def getBuildTarget = { ->
+  def stdout = new ByteArrayOutputStream()
+  exec {
+    commandLine props['sdk.dir'] + "/tools/android", "list", "targets", "-c"
+    standardOutput = stdout
+  }
+  return stdout.toString().trim()
+}
+
+/*
+ * Create Android Application
+ */
+def createApplication(String target, String name, String path, String activity, String groupId) {
+  def stdout = new ByteArrayOutputStream()
+  exec {
+    commandLine sdkDir + "/tools/android", "create", "project",
+                "--target", target,
+                "--name", name,
+                "--path", path,
+                "--activity", activity,
+                "--package", groupId,
+                "--gradle", "--gradle-version", "0.9.+"
+    ignoreExitValue true
+    standardOutput = stdout
+  }
+  return stdout.toString().trim()
+}
+
+/*
+ * Create Android Library Project
+ */
+def createLibrary(String target, String name, String path, String groupId) {
+  def stdout = new ByteArrayOutputStream()
+  exec {
+    commandLine sdkDir + "/tools/android", "create", "lib-project",
+                "--target", target,
+                "--name", name,
+                "--path", path,
+                "--package", groupId
+    ignoreExitValue true
+    standardOutput = stdout
+  }
+  return stdout.toString().trim()
+}
+
+/*
+ * Copy the file collection to target folder
+ */
+def copyFiles(String files, String target) {
+  copy {
+    from files
+    into target
+  }
+}
+
+/*
+ * Replace the old string with the new one in the file
+ */
+def replace( String oldString, String newString, String fileName = "settings.gradle") {
+  def fileHandler = new File(fileName)
+  def fileContent = fileHandler.getText()
+  def regExp = /$oldString/
+  def newContent = ( fileContent =~ regExp ).replaceAll( newString )
+  fileHandler.text = newContent
+}
+
+/*
+ * Keyword exists in the content of the file?
+ */
+def existsKeyword( String keyWord, String fileName ) {
+  def fileHandler = new File(fileName)
+  def fileContent = fileHandler.getText()
+  def regExp = /$keyWord/
+  return (fileContent =~ regExp)
+}
+
+/*
+ * Rename path
+ */
+def renamePath( String oldPath, String newPath ) {
+  File op = new File(oldPath)
+  File np = new File(newPath)
+  if (op.isDirectory()) {
+    op.renameTo(np)
+  }
+}
+
+/*
+ * Rename file
+ */
+def renameFile( String oldFileName, String newFileName ) {
+  new File(oldFileName).renameTo(new File(newFileName))
+}
+
+/*
+ * Path exists?
+ */
+def existPath( String path ) {
+  File p = new File(path)
+  if (p.isDirectory()) {
+    return true
+  }
+  return false
+}
+
+/*
+ * Append the content of the first file to the second file
+ */
+def append( String firstFile, String secondFile) {
+  new File(secondFile).withWriterAppend('UTF-8') { it.write(new File(firstFile).text) }
+}
+
+/*
+ * Unit test for functions
+ */
+task testFunctions << {
+  /*def password = askPassword()
+  println("Password: " + password)
+  def username = askInformation()
+  println("Username: " + username)*/
+  def target = getBuildTarget()
+  println("Target: " + getBuildTarget())
+  println("Group ID: " + groupId)
+  createApplication(target, 'HelloWOrld', "./tmp", "HelloWordActivity", groupId)
+  createLibrary(target, "HelloLibrary", "./tmplib", groupId)
+}
+
+/*
+ * Create Android Application
+ */
+task createApp(dependsOn: cloneGradleRepo) << {
+  description = "Creating Android application's skeleton ... "
+  def projectName = getParentFolderName()
+  //def moduleName = askInformation('Please input module name: ', projectName.toLowerCase())
+  def moduleName = projectName.toLowerCase()
+  copyFiles(templateDir + '/apk/hellomodule', moduleName)
+  // replace settings.gradle to the module name, from 'hellomodule'
+  replace('hellomodule', moduleName)
+  // replace the content 'hellomodule' under hellomodule to the module name
+  replace('hellomodule', moduleName, moduleName + '/src/main/AndroidManifest.xml')
+  replace('hellomodule', moduleName, moduleName + '/src/main/java/com/weimed/app/hellomodule/MainActivity.java')
+  replace('hellomodule', moduleName, moduleName + '/src/androidTest/java/com/weimed/app/hellomodule/test/MainActivityTest.java')
+  replace('hellomodule', moduleName, moduleName + '/src/main/res/menu/main.xml')
+  replace('hellomodule', moduleName, moduleName + '/src/main/res/layout/activity_main.xml')
+  // replace the content 'HelloApplication' under hellomodule to the project name
+  replace('HelloApplication', projectName, moduleName + '/src/main/res/values/strings.xml')
+  // replace the path 'hellomodule' to the module name
+  renamePath(moduleName + '/src/main/java/com/weimed/app/hellomodule', moduleName + '/src/main/java/com/weimed/app/' + moduleName)
+  renamePath(moduleName + '/src/androidTest/java/com/weimed/app/hellomodule', moduleName + '/src/androidTest/java/com/weimed/app/' + moduleName)
+  // append the part of the build.gradle to main build.gradle
+  if (!existsKeyword('ext.packages', 'build.gradle')) {
+    append(templateDir + '/apk/build.gradle.part', 'build.gradle')
+  }
+}
+
+/*
+ * Create Android Library Project
+ */
+task createLib(dependsOn: cloneGradleRepo) << {
+  description = "Creating Android Library project's skeleton ... "
+  def projectName = getParentFolderName()
+  //def moduleName = askInformation('Please input module name: ', projectName.toLowerCase())
+  def moduleName = projectName.toLowerCase()
+  copyFiles(templateDir + '/lib/hellomodule', moduleName)
+  // replace settings.gradle to the module name, from 'hellomodule'
+  replace('hellomodule', moduleName)
+  // replace the content 'hellomodule' under hellomodule to the module name
+  replace('hellomodule', moduleName, moduleName + '/src/main/AndroidManifest.xml')
+  replace('Main', projectName, moduleName + '/src/main/AndroidManifest.xml')
+  replace('hellomodule', moduleName, moduleName + '/src/main/java/com/weimed/lib/hellomodule/MainActivity.java')
+  replace('Main', projectName, moduleName + '/src/main/java/com/weimed/lib/hellomodule/MainActivity.java')
+  renameFile(moduleName + '/src/main/java/com/weimed/lib/hellomodule/MainActivity.java', moduleName + '/src/main/java/com/weimed/lib/hellomodule/' + projectName + 'Activity.java')
+  replace('hellomodule', moduleName, moduleName + '/src/androidTest/java/com/weimed/lib/hellomodule/test/MainActivityTest.java')
+  replace('Main', projectName, moduleName + '/src/androidTest/java/com/weimed/lib/hellomodule/test/MainActivityTest.java')
+  renameFile(moduleName + '/src/androidTest/java/com/weimed/lib/hellomodule/test/MainActivityTest.java', moduleName + '/src/androidTest/java/com/weimed/lib/hellomodule/test/' + projectName + 'ActivityTest.java')
+  //replace('hellomodule', moduleName, moduleName + '/src/main/res/menu/main.xml')
+  //replace('hellomodule', moduleName, moduleName + '/src/main/res/layout/activity_main.xml')
+  renameFile(moduleName + '/src/main/res/drawable-hdpi/weimed_hellomodule_ic_launcher.png', moduleName + '/src/main/res/drawable-hdpi/weimed_' + moduleName + '_ic_launcher.png')
+  renameFile(moduleName + '/src/main/res/drawable-mdpi/weimed_hellomodule_ic_launcher.png', moduleName + '/src/main/res/drawable-mdpi/weimed_' + moduleName + '_ic_launcher.png')
+  renameFile(moduleName + '/src/main/res/drawable-xhdpi/weimed_hellomodule_ic_launcher.png', moduleName + '/src/main/res/drawable-xhdpi/weimed_' + moduleName + '_ic_launcher.png')
+  renameFile(moduleName + '/src/main/res/drawable-xxhdpi/weimed_hellomodule_ic_launcher.png', moduleName + '/src/main/res/drawable-xxhdpi/weimed_' + moduleName + '_ic_launcher.png')
+  // replace the content 'HelloLibrary' under hellomodule to the project name
+  replace('HelloLibrary', projectName, moduleName + '/src/main/res/values/strings.xml')
+  replace('hellomodule', moduleName, moduleName + '/src/main/res/values/strings.xml')
+  // replace the path 'hellomodule' to the module name
+  renamePath(moduleName + '/src/main/java/com/weimed/lib/hellomodule', moduleName + '/src/main/java/com/weimed/lib/' + moduleName)
+  renamePath(moduleName + '/src/androidTest/java/com/weimed/lib/hellomodule', moduleName + '/src/androidTest/java/com/weimed/lib/' + moduleName)
+  // append the part of the build.gradle to main build.gradle
+  if (!existsKeyword('ext.packages', 'build.gradle')) {
+    append(templateDir + '/lib/build.gradle.part', 'build.gradle')
+  }
+}
+
+/*
+ * Create Java Library Project
+ */
+task createJar << {
+  description = "Creating Java Library project's skeleton ... "
+  def projectName = getParentFolderName()
+  //def moduleName = askInformation('Please input module name: ', projectName.toLowerCase())
+  def moduleName = projectName.toLowerCase()
+  copyFiles(templateDir + '/jar/hellomodule', moduleName)
+  // replace settings.gradle to the module name, from 'hellomodule'
+  replace('hellomodule', moduleName)
+  // replace the content 'hellomodule' under hellomodule to the module name
+  replace('hellomodule', moduleName, moduleName + '/src/main/java/com/weimed/lib/hellomodule/MainClass.java')
+  replace('hellomodule', moduleName, moduleName + '/src/test/java/com/weimed/lib/hellomodule/MainClassTest.java')
+  // replace the path 'hellomodule' to the module name
+  renamePath(moduleName + '/src/main/java/com/weimed/lib/hellomodule', moduleName + '/src/main/java/com/weimed/lib/' + moduleName)
+  renamePath(moduleName + '/src/test/java/com/weimed/lib/hellomodule', moduleName + '/src/test/java/com/weimed/lib/' + moduleName)
+  // append the part of the build.gradle to main build.gradle
+  if (!existsKeyword('ext.packages', 'build.gradle')) {
+    append(templateDir + '/jar/build.gradle.part', 'build.gradle')
+  }
+}
+
+/*
+ * Enable JNI support
+ */
+task enableJni << {
+  description = "Creating Java Library project's skeleton ... "
+  def projectName = getParentFolderName()
+  def moduleName = projectName.toLowerCase()
+  if (!existPath(moduleName + '/src/main/jni')) {
+    copyFiles(templateDir + '/jni', moduleName + '/src/main/jni')
+    // replace the content 'hellomodule' under hellomodule to the module name
+    replace('hellomodule', moduleName, moduleName + '/src/main/jni/hellomodule.c')
+    // replace the path 'hellomodule' to the module name
+    renameFile(moduleName + '/src/main/jni/hellomodule.c', moduleName + '/src/main/jni/' + moduleName + '.c')
+  } else {
+    println moduleName + '/src/main/jni' + " exists already!"
+  }
+}
+
+/*
+ * Create Android Test Project
+ */
+task createTest(dependsOn: cloneGradleRepo) << {
+  println("Creating Android Library project's skeleton!")
+  exec {
+    commandLine = "echo 'Android Test Project hasn\'t be implemented yet!'".tokenize()
+  }
+}

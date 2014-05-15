@@ -1,0 +1,85 @@
+/*
+ * NOTE:
+ * Define the following constants in ~/.gradle/gradle.properties
+ *
+ * REPO_DEPLOYMENT_USERNAME=username
+ * REPO_DEPLOYMENT_PASSWORD=password
+ * REPO_DEPLOYMENT_URL=http://nexus/content/repositories
+ *
+ */
+
+/*
+ * The packages definitions.
+def packages=[
+  [source: output,    target: artifactId,    classifier: classifier,    extension: extension,    version: version],
+]
+ */
+
+
+// Generate map of resolved versions
+/*
+Set<ResolvedArtifact> resolvedArtifacts = new LinkedHashSet<ResolvedArtifact>()
+configurations.each {
+  resolvedArtifacts.addAll(it.getResolvedConfiguration().getResolvedArtifacts())
+}
+Map resolvedVersionMap = new HashMap()
+resolvedArtifacts.each {
+  resolvedVersionMap.put(it.getName(), it.getModuleVersion().getId().getVersion())
+}*/
+
+apply plugin: 'maven-publish'
+
+publishing {
+  publications {
+    packages.each { pkg ->
+      "${pkg.target}"(MavenPublication) {
+        artifactId  pkg.target
+        groupId     project.groupId
+        version     pkg.version ?: project.version
+
+        def pkgSource = pkg.source
+        if (pkgSource instanceof String || pkgSource instanceof GString) {
+            pkgSource = new File(pkg.source)
+        }
+
+        if (pkgSource.isFile()) {
+          artifact source: file(relativePath(pkgSource)), classifier: pkg.classifier, extension: pkg.extension
+        } else {
+          task proguardPackage(type: Zip, overwrite: true) {
+            from pkgSource
+          }
+          artifact proguardPackage {
+            classifier pkg.classifier
+            extension  pkg.extension
+          }
+        }
+        /*pom.withXml {
+          def root = asNode()
+          def deps = root.get('dependencies')
+          if ( deps.size() ) {
+            root.remove(deps)
+          }
+          deps = new Node(root, 'dependencies')
+          resolvedArtifacts.each {
+            def node = new Node(deps, 'dependency')
+            new Node(node, 'groupId', it.getModuleVersion().getId().getGroup())
+            new Node(node, 'artifactId', it.getName())
+            new Node(node, 'version', it.getModuleVersion().getId().getVersion())
+          }
+        }*/
+      }
+    }
+    repositories.maven {
+      credentials {
+        username REPO_DEPLOYMENT_USERNAME
+        password REPO_DEPLOYMENT_PASSWORD
+      }
+      if(version.endsWith('-SNAPSHOT')){
+        url REPO_DEPLOYMENT_URL + "/snapshots"
+      } else {
+        url REPO_DEPLOYMENT_URL + "/releases"
+      }
+    }
+  }
+}
+

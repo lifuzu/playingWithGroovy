@@ -1,0 +1,365 @@
+// Basic version string
+String majorVersion = 1
+String minorVersion = 0
+String patchVersion = 0
+/* The build version is changed at build-time
+ * according to latest git tag in the tree;
+ * If there is no tag matched, start with
+ * ${buildVersion} + 1
+ */
+String buildVersion = 0
+
+/*
+ * Get the current branch name
+ */
+def getCurrentBranchName = { ->
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        commandLine 'git', 'symbolic-ref', 'HEAD', '--short'
+        standardOutput = stdout
+    }
+    return stdout.toString().trim()
+}
+
+/*
+ * Get the remote from the current branch
+ */
+def getRemote (String branch='master') {
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        //commandLine 'git', 'config', 'branch.' + branch + '.remote'
+        commandLine 'git', 'remote'
+        standardOutput = stdout
+    }
+    return stdout.toString().trim()
+}
+
+/*
+ * Get the major, minor, patch, and buildnumber version from gradle.properties
+ */
+def getVersionFromGradleProp( String gradlePropFileName = "gradle.properties") { 
+    def gradlePropFile = new File(gradlePropFileName)
+    def gradlePropContent = gradlePropFile.getText()
+    def versionRegExp = /version=([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)/
+    def matcher = ( gradlePropContent =~ versionRegExp )
+    return matcher[0][1..-1]
+}
+
+/*
+ * Get the latest tag on the current branch, if has version paramenters, match them
+ */
+def getLatestTagOnCurrentBranch() {return}
+
+/*
+ * Get the latest tag on the current branch, with match version params: major, minor, patch
+ */
+def getLatestMatchedTag(String branch, String major, String minor, String patch) {
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        commandLine 'git', 'describe', '--abbrev=0', '--tags',
+                    "--match", "${branch}_${major}.${minor}.${patch}.*"
+        ignoreExitValue true
+        standardOutput = stdout
+    }
+    return stdout.toString().trim()
+}
+
+/*
+ * Get the latest tag on the current branch, with match version params: major, minor, patch, buildnumber
+ */
+def getLatestMatchedTag(String branch, String major, String minor, String patch, String buildnumber) {
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        commandLine 'git', 'describe', '--abbrev=0', '--tags',
+                    "--match", "${branch}_${major}.${minor}.${patch}.${buildnumber}"
+        ignoreExitValue true
+        standardOutput = stdout
+    }
+    return stdout.toString().trim()
+}
+
+/*
+ * Detect if the match tag existed
+ */
+def detectMatchTag(String tag) {
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        commandLine 'git', 'describe', '--abbrev=0', '--tags',
+                    "--match", "${tag}"
+        ignoreExitValue true
+        standardOutput = stdout
+    }
+    if( stdout.toString().trim() ) return true
+    else return false
+}
+
+/*
+ * Get the build number from tag
+ */
+def getBuildNumberFromTag(String tag) {
+    def buildNumberRegExp = /.*_[0-9]+\.[0-9]+\.[0-9]+\.([0-9]+)/
+    def matcher = ( tag =~ buildNumberRegExp )
+    return matcher[0][1]
+}
+
+/*
+ * Generate a new version string
+ */
+def generateNewVersion(String major='1', String minor='0', String patch='0', String buildNumber='0') {
+    //"${major}.${minor}.${patch}."+(buildNumber.toInteger() + 1).toString()
+    def buildnumber = incrementBuildNumber(buildNumber)
+    constructVersion(major, minor, patch, buildnumber)
+}
+
+/*
+ * Increment the build number
+ */
+def incrementBuildNumber(String buildNumber='0') {
+    (buildNumber.toInteger() + 1).toString()
+}
+
+/*
+ * Construct a version string with major, minor, patch, and buildnumber
+ */
+def constructVersion(String major='1', String minor='0', String patch='0', String buildNumber='0') {
+    "${major}.${minor}.${patch}.${buildNumber}"
+}
+
+/*
+ * Get the major, minor, patch, and buildnumber version from a version string
+ */
+def destructVersion( String version ) {
+    def versionRegExp = /([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)/
+    def matcher = ( version =~ versionRegExp )
+    return matcher[0][1..-1]
+}
+
+/*
+ * Write the new version to gradle.properties
+ */
+def writeVersionToGradleProp( String newVersion, String gradlePropFileName = "gradle.properties") {
+    def gradlePropFile = new File(gradlePropFileName)
+    def gradlePropContent = gradlePropFile.getText()
+    def versionRegExp = /(version=)([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)/
+    def newContent = ( gradlePropContent =~ versionRegExp ).replaceAll('$1'+newVersion)
+    gradlePropFile.text = newContent
+}
+
+/*
+ * Generate a new tag string
+ */
+def generateTag( String branch, String version) {
+    "${branch}_${version}"
+}
+
+/*
+ * Get the hash of head
+ */
+def getHeadHash () {
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        commandLine 'git', 'rev-parse', 'HEAD'
+        standardOutput = stdout
+    }
+    return stdout.toString().trim()
+}
+
+/*
+ * Create the tag locally
+ */
+def createTag (String tag, String message) {
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        commandLine 'git', 'tag', tag, '-a', '-m ' + message
+        standardOutput = stdout
+    }
+    return stdout.toString().trim()
+}
+
+/*
+ * Push the tag to server
+ */
+def pushTag (String tag) {
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        commandLine 'git', 'push', 'origin', tag
+        standardOutput = stdout
+    }
+    return stdout.toString().trim()
+}
+
+def doCommitVersionChange() {
+    // Commit gradle.properties change by default
+    def doCommit = true
+    if (project.hasProperty('commitVersionChange')) {
+        if (commitVersionChange.toLowerCase() == 'false') {
+            doCommit = false
+        }
+    }
+    return doCommit
+}
+
+/*
+ * add the change file in git server
+ */
+def add (String file='gradle.properties') {
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        commandLine 'git', 'add', file
+        standardOutput = stdout
+    }
+    return stdout.toString().trim()
+}
+
+/*
+ * commit the changes with a message
+ */
+def commit (String message) {
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        commandLine 'git', 'commit', '-m', message
+        standardOutput = stdout
+        ignoreExitValue true
+    }
+    return stdout.toString().trim()
+}
+
+/*
+ * push the changes to git remote server
+ */
+def push (String branch='master') {
+    String origin = getRemote(branch)
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        commandLine 'git', 'push', origin, branch
+        standardOutput = stdout
+    }
+    return stdout.toString().trim()
+}
+
+/*
+ * Unit test for functions
+ */
+task testTag << {
+    def branch = getCurrentBranchName()
+    println "${branch}"
+    def (major, minor, patch, buildnumber) = getVersionFromGradleProp()
+    println "${major}, ${minor}, ${patch}, ${buildnumber}"
+    def tag = getLatestMatchedTag(branch, major, minor, patch)
+    println "${tag}"
+    def newVersion = null
+    if (tag) {
+        println "${tag}"
+        buildnumber = getBuildNumberFromTag(tag)
+        println "${buildnumber}"
+        newVersion = generateNewVersion(major, minor, patch, buildnumber)
+    } else {
+        println "empty"
+        newVersion = generateNewVersion(majorVersion, minorVersion, patchVersion, buildVersion)
+    }
+    println "${newVersion}"
+    writeVersionToGradleProp(newVersion)
+    add()
+    commit('pump version to ' + newVersion)
+    push(branch)
+    (major, minor, patch, buildnumber) = getVersionFromGradleProp()
+    assert "${newVersion}" == "${major}.${minor}.${patch}.${buildnumber}"
+    (major, minor, patch, buildnumber) = destructVersion(newVersion)
+    assert "${newVersion}" == "${major}.${minor}.${patch}.${buildnumber}"
+    def newTag = generateTag(branch, newVersion)
+    println "${newTag}"
+    def headHash = getHeadHash()
+    println "${headHash}"
+    def tagExists = getLatestMatchedTag(branch, major, minor, patch, '4')
+    //assert tagExists == "${branch}_1.0.0.4"
+    def tagNotExists = getLatestMatchedTag(branch, major, minor, patch, '10')
+    assert tagNotExists == ''
+}
+
+/*
+ * Create Tag w/o parameter from Jenkins job
+ */
+task createTag << {
+    def branch = getCurrentBranchName()
+    def (major, minor, patch, buildnumber) = getVersionFromGradleProp()
+    def tag = getLatestMatchedTag(branch, major, minor, patch)
+    def newVersion = null
+    if (tag) {
+        println "${tag}"
+        buildnumber = getBuildNumberFromTag(tag)
+        newVersion = generateNewVersion(major, minor, patch, buildnumber)
+    } else {
+        println "empty"
+        newVersion = generateNewVersion(majorVersion, minorVersion, patchVersion, buildVersion)
+    }
+
+    def newTag = generateTag(branch, newVersion)
+    if ( detectMatchTag(newTag) ) {
+        throw new GradleException("ERROR: the tag: " + newTag + " already existed!")
+    }
+    writeVersionToGradleProp(newVersion)
+    if (doCommitVersionChange()) {
+        add()
+        commit('pump version to ' + newVersion)
+        push(branch)
+    }
+    def headHash = getHeadHash()
+    createTag(newTag, headHash)
+
+    if (tag) {
+        println "Increament Git tag from ${tag} to ${newTag}"
+    } else {
+        println "Initial Git tag ${newTag}"
+    }
+    println "Start build with tag: ${newTag}"
+}
+
+/*
+ * Create Tag w/ parameter(s) from Jenkins job
+ */
+task createTagWithParams << {
+    def branch = getCurrentBranchName()
+    def (major, minor, patch, buildnumber) = getVersionFromGradleProp()
+    def tag = getLatestMatchedTag(branch, major, minor, patch, buildnumber)
+    if (tag) {
+        throw new GradleException("ERROR: the tag: " + tag + " already existed!")
+    } else {
+        def version = constructVersion(major, minor, patch, buildnumber)
+        tag = generateTag(branch, version)
+        if (doCommitVersionChange()) {
+            add()
+            commit('pump version to ' + version + ', align to the input parameters.')
+            push(branch)
+        }
+        def headHash = getHeadHash()
+        createTag(tag, headHash)
+    }
+    println "Start build with tag: ${tag}"
+}
+
+/*
+ * Push Tag to git server
+ */
+task pushTag << {
+    def branch = getCurrentBranchName()
+    def (major, minor, patch, buildnumber) = getVersionFromGradleProp()
+    def tag = getLatestMatchedTag(branch, major, minor, patch, buildnumber)
+    if (tag) {
+        def retval=pushTag(tag)
+        println retval
+    } else {
+        def version = constructVersion(major, minor, patch, buildnumber)
+        tag = generateTag(branch, version)
+        throw new GradleException("ERROR: the tag: " + tag + " does NOT exist yet!")
+    }
+}
+
+task createAllTags(dependsOn: tasks.matching
+    { Task task ->
+        task.name.startsWith("createTag")}
+)
+
+task pushAllTags(dependsOn: tasks.matching
+    { Task task ->
+        task.name.startsWith("pushTag")}
+)

@@ -1,0 +1,24 @@
+
+
+task createArtifactLink << {
+    String url_nexus = REPO_DEPLOYMENT_URL + "/releases"
+    if(version.endsWith('-SNAPSHOT')){
+        url_nexus = REPO_DEPLOYMENT_URL + "/snapshots"
+    }
+
+    packages.each {
+        String version = it.version ?: version
+        String packageName = it.target + '-' + version
+        if (it.classifier) {
+            packageName += '-' + it.classifier
+        }
+        packageName += '.' + it.extension
+        String packageMd5Name = packageName + '.md5'
+        String packageUri = url_nexus + '/' + groupId.replaceAll(/\./, '/') + '/' + it.target + '/' + version + '/' + packageName
+        String packageMd5Uri = packageUri + '.md5'
+        String packageLinkContent = "<html><head><meta HTTP-EQUIV=\"REFRESH\" content=\"0; url=" + packageUri + "\"></head></html>"
+        String packageMd5LinkContent = "<html><head><meta HTTP-EQUIV=\"REFRESH\" content=\"0; url=" + packageMd5Uri + "\"></head></html>"
+        new File(packageName + '.html').write(packageLinkContent)
+        new File(packageMd5Name + '.html').write(packageMd5LinkContent)
+    }
+}
